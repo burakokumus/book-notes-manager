@@ -1,9 +1,11 @@
 import requests
 import json
+import random
 
 class NotionManager:
-  def __init__(self, books_db_id, secret_key, notion_version):
+  def __init__(self, books_db_id, random_highlights_db_id, secret_key, notion_version):
     self.books_db_id = books_db_id
+    self.random_highlights_db_id = random_highlights_db_id
     self.notion_secret_key = secret_key
     self.notion_version = notion_version
 
@@ -288,3 +290,92 @@ class NotionManager:
     
     raise Exception(response_json['message'])
   
+  def __get_random_highlights(self, no_of_highlights):
+    """Picks random entries from the user's highlights collection.
+
+    Args:
+        no_of_highlights (int): Number of highlights to be picked.
+
+    Returns:
+        array(tuple(string: string)): Array of tuples of the book title, and the highlight.
+    """
+    all_highlights = []
+    books = self.get_all_books()
+    
+    for book_id in books.keys():
+      book_title = books[book_id].split(':')[0]
+      highlights, _ = self.get_highlights_and_notes(book_id)
+      for highlight in highlights:
+        all_highlights.append((book_title, highlight))
+    
+    return random.choices(all_highlights, k=no_of_highlights)
+  
+  def __insert_highlight(self, book_title, highlight):
+    """Insert the provided highlight to the random highlights database.
+
+    Args:
+        book_title (string): Title of the book that contains the highlight.
+        highlight (string): Highlight text.
+
+    Raises:
+        Exception: Notion API error.
+
+    Returns:
+        bool: Success.
+    """
+    request_url = f"https://api.notion.com/v1/pages"
+    
+    request_headers = {
+      "Accept": "application/json",
+      "Notion-Version": f"{self.notion_version}",
+      "Content-Type": "application/json",
+      "Authorization": f"Bearer {self.notion_secret_key}"  
+    }
+    
+    request_payload = {
+      "parent": {
+        "type": "database_id",
+        "database_id": self.random_highlights_db_id
+      },
+      "properties": {
+        "Highlight": {
+          "title": [
+            {
+              "type": "text",
+              "text": {
+                "content": highlight
+              }
+            }
+          ]
+        },
+        "Book Title": {
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": book_title
+              }
+            }
+          ]
+        }
+      }
+    }
+    
+    response = requests.post(request_url, json=request_payload, headers=request_headers)
+    response_json = json.loads(response.text)
+    
+    if response.status_code == 200:
+      return True
+    raise Exception(response_json['message'])
+  
+  def add_random_highlights_to_db(self, no_of_highlights):
+    """Selects random highlights from the books database and inserts them into the random highlights database.
+
+    Args:
+        no_of_highlights (int): Number of highlights to be selected.
+    """
+    random_highlights = self.__get_random_highlights(no_of_highlights)
+    
+    for title, highlight in random_highlights:
+      self.__insert_highlight(title, highlight)
+    return
